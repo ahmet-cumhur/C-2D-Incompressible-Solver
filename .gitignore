@@ -6,6 +6,7 @@ Eigen/
 
 #medida
 media/
+*.gif
 
 #outputfiles
 vtk_output/
