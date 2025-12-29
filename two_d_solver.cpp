@@ -10,6 +10,7 @@
 #include "Eigen/Dense"
 #include "Eigen/PardisoSupport" 
 #include <mkl.h>
+#include <filesystem>
 
 class Mesh2D{
     public:
@@ -43,9 +44,9 @@ class Mesh2D{
         Eigen::MatrixXd zc;
 
         Eigen::MatrixXd UVZ;
-        Eigen::VectorXd p_flat_guess;
         Eigen::VectorXd p_flat;
-        bool guess;
+        Eigen::MatrixXd omega;
+        Eigen::VectorXd omega_flat;
 
         Mesh2D(int aNx, int aNy, double aL, double aH,double aRe,double aNu, double aU_inlet):
         nx(aNx),
@@ -60,7 +61,6 @@ class Mesh2D{
         pn(ny,nx),
         pc(ny,nx),
         b(nx*ny),
-        p_flat_guess(nx*ny),
         p_flat(nx*ny),
         b_2d(ny,nx),
         
@@ -78,7 +78,9 @@ class Mesh2D{
         u_inlet(aU_inlet),
         dt(1e-6),
         eps(1e-6),
-        dt_min(1e-10)
+        dt_min(1e-10),
+        omega(ny,nx),
+        omega_flat(ny*nx)
         {
 
 
@@ -103,9 +105,9 @@ class Mesh2D{
 
             u_cell.setZero();
             v_cell.setZero();
-            guess = false;
             p_flat.setZero();
-            p_flat_guess.setZero();
+            omega.setZero();
+            omega_flat.setZero();
         }
         //get other variables
         double get_dx(){
@@ -403,7 +405,7 @@ class Mesh2D{
             //for this is will apply A(5,5) to 1 and A(5,:) = 0 and A(:,5)= 0 and b(5) = 0;
             //define the solver
 
-            Eigen::VectorXd p_flat = Solver.solve(-b);
+            p_flat = Solver.solve(-b);
             if (Solver.info() != Eigen::Success) std::cout << "LLT solve failed\n";
 
             //unflatten
@@ -444,7 +446,7 @@ class Mesh2D{
                 //
                 //
                 Eigen::VectorXd rhs = -b;           
-                Eigen::VectorXd p_flat = Solver.solve(rhs);
+                p_flat = Solver.solve(rhs);
                 if (Solver.info() != Eigen::Success) std::cout << "LLT solve failed\n";
 
                 //unflatten
@@ -544,6 +546,21 @@ class Mesh2D{
             us.block(mid_y,mid_x,20,20).setZero();
             vs.block(mid_y,mid_x,20,20).setZero();
         }
+        void calculate_vorticity(){
+            double dx = get_dx();
+            double dy = get_dy();
+            //w = dv/dx - du/dy w/ central differences:
+            for(int j = 0; j < ny; j++){
+                for(int i = 0; i < ny; i++){
+                    int k = get_mem_pos(j,i); 
+                    omega(j,i) = ((vc(j,i+1)-vc(j,i-1))/(2*dx))-((uc(j+1,i)-uc(j-1,i))/(2*dy));                     
+                }
+            }
+            omega.row(0) = -omega.row(1);
+            omega.row(ny-1) = -omega.row(ny-2);
+            omega.col(0) = -omega.col(1);
+            omega.col(nx-1) = -omega.col(nx-2);    
+        }
 
         void data_output(double t_current,int i){
             //get data required for data writing
@@ -565,6 +582,7 @@ class Mesh2D{
                     uc_flat(k) = uc(j,i);
                     vc_flat(k) = vc(j,i);
                     zc_flat(k) = zc(j,i);
+                    omega_flat(k) = omega(j,i);
                 }
             }
             //get the file name
@@ -573,9 +591,10 @@ class Mesh2D{
             //FIX this issue!!
             std::ostringstream oss;
             //<< "_t_"<< t_current you can add this but problem for paraview
-            oss << "out_"<<std::setw(7)<<std::setfill('0')<< i << ".vtk"; 
+            oss << "out_"<<std::setw(7)<<std::setfill('0')<< i << ".vtk";
             std::string file_name = oss.str();
-            file_name = "C:\\Users\\mehme\\OneDrive\\Desktop\\projects\\2d\\basinc_deneme\\vtk_output\\"+ file_name;
+            std::string working_dir = std::filesystem::current_path().string(); 
+            file_name = working_dir+"\\vtk_output\\"+ file_name;
             std::ofstream FileOP(file_name);
             if(FileOP.is_open()){
                 //Header
@@ -591,9 +610,20 @@ class Mesh2D{
                 FileOP << "TIME 1 1 float\n";
                 FileOP << t_current << "\n";
                 //Point Data
+                //pressure
                 FileOP << "POINT_DATA"<< " " << npts << "\n";
-                FileOP << "SCALARS omega float 1\n";
-                FileOP << "LOOKUP_TABLE default\n"; 
+                FileOP << "SCALARS P float 1\n";
+                FileOP << "LOOKUP_TABLE default\n";
+                for(int k = 0; k<(ny*nx); k++){
+                    FileOP << p_flat(k)<<"\n"; 
+                }
+                //vorticity
+                calculate_vorticity();
+                FileOP << "SCALARS w float 1\n";
+                FileOP << "LOOKUP_TABLE default\n";
+                for(int k = 0; k<(ny*nx); k++){
+                    FileOP << omega_flat(k)<<"\n"; 
+                }
                 //Vector Data
                 FileOP << "VECTORS U float\n";
                 UVZ.col(0) = uc_flat;
@@ -621,9 +651,9 @@ int main(){
     mkl_set_num_threads(8);
     std::cout << "Sim Staring.....\n";
     auto t_0 = std::chrono::steady_clock::now(); 
-    double t_final = 2.0;
+    double t_final = 0.5;
     double t_current = 0.0;
-    Mesh2D two_D(500,100,2.5,1.0,100.0,0.01,5.0);
+    Mesh2D two_D(100,100,1.0,1.0,100.0,0.01,5.0);
     //here is where we compute the poissons matrix before
     Mesh2D::LLT_solver LLT_solver;
     Mesh2D::LLT_Pardiso_Solver LLT_Pardiso_Solver;
