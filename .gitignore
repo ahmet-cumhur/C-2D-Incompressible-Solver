@@ -1,0 +1,30 @@
+#VS code
+.vscode/
+
+#Eigen 
+Eigen/
+
+#medida
+media/
+
+#outputfiles
+vtk_output/
+*.vtk
+*.vtu
+*.vti
+*.pvtu
+*.pvd
+
+#build
+*.bat
+
+#cmake stuff
+
+*.sln
+*.vcxproj*
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.py
+build/
