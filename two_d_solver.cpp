@@ -291,7 +291,6 @@ class Mesh2D{
                 }
                 
             }
-        
 
             //bcs of full of neumann bc we need to set a constant in our matrixes otherwise we will have a singularity
             //for this is will apply A(5,5) to 1 and A(5,:) = 0 and A(:,5)= 0 and b(5) = 0;
@@ -304,6 +303,52 @@ class Mesh2D{
             A.makeCompressed();
             return A;
         }
+        
+        SparseMatrix get_sparse_matrix_triplets(){
+                double dx = get_dx();
+                double dy = get_dy();
+
+                const int N = nx*ny;
+
+                double diag = 2/(dx*dx)+2/(dy*dy);
+                double ux = -1/(dx*dx);
+                double uy = -1/(dy*dy);
+
+                int k0 = 200; 
+                std::vector<Eigen::Triplet<double>> T;
+                for (int j = 0; j < ny; ++j) {
+                    for (int i = 0; i < nx; ++i) {
+                        int k = get_mem_pos(j,i);
+
+                        int n = get_n_loc(k);
+                        int s = get_s_loc(k);
+                        int w = get_w_loc(k);
+                        int e = get_e_loc(k);
+
+                        //for singularity
+                        T.emplace_back(k,k,diag);
+                        //west
+                        if(i>0){T.emplace_back(k,w,ux);}else{T.emplace_back(k,k,(ux));}
+                        //east
+                        if(i<nx-1){T.emplace_back(k,e,ux);}else{T.emplace_back(k,k,(ux));}
+                        //north
+                        if(j<ny-1){T.emplace_back(k,n,uy);}else{T.emplace_back(k,k,(uy));}
+                        //south
+                        if(j>0){T.emplace_back(k,s,uy);}else{T.emplace_back(k,k,(uy));}
+                    }    
+                }
+
+
+                SparseMatrix A (N,N);
+                A.setFromTriplets(T.begin(),T.end());
+                A.row(k0) *= 0;
+                A.col(k0) *= 0;
+                A.coeffRef(k0,k0) = 1;
+
+                A.prune(0.0);
+                A.makeCompressed();
+                return A;
+            }
         
         // get the intermediate time velocities
         //lets add some discretezation possibilities
@@ -578,7 +623,7 @@ class Mesh2D{
             Eigen::VectorXd zc_flat;zc_flat.resize(nx*ny);
             for(int j = 0; j<ny; j++){
                 for(int i = 0; i<nx; i++){
-                    int k = i+j*nx;
+                    int k = get_mem_pos(j,i);
                     uc_flat(k) = uc(j,i);
                     vc_flat(k) = vc(j,i);
                     zc_flat(k) = zc(j,i);
@@ -651,15 +696,15 @@ int main(){
     mkl_set_num_threads(8);
     std::cout << "Sim Staring.....\n";
     auto t_0 = std::chrono::steady_clock::now(); 
-    double t_final = 0.5;
+    double t_final = 3.0;
     double t_current = 0.0;
-    Mesh2D two_D(100,100,1.0,1.0,100.0,0.01,5.0);
+    Mesh2D two_D(300,100,3.0,1.0,100.0,0.01,5.0);
     //here is where we compute the poissons matrix before
     Mesh2D::LLT_solver LLT_solver;
     Mesh2D::LLT_Pardiso_Solver LLT_Pardiso_Solver;
     //this is SPD matrix w/ neumann BC 
     auto t0_matrix = std::chrono::steady_clock::now();
-    auto A_sprs = two_D.get_sparse_matrix_full_neumann();
+    auto A_sprs = two_D.get_sparse_matrix_triplets();
     auto t1_matrix = std::chrono::steady_clock::now();
     std::chrono::duration<double> time_for_matrix = t1_matrix-t0_matrix;
     std::cout << "Total time spent on building matrix: " << time_for_matrix.count()<<std::endl;

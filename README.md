@@ -25,6 +25,6 @@ Gives its outputs as .vtk files which are suitable to analyzed on ParaView.
 - More immersed objects / obstacle shapes
 - Sinh geometric streching for better resolution where object lies
 - OpenMP parallelization
-- Update the poissons matrix build
+- Update the poissons matrix build ✅
 - Add energy equation
 - Add RANS (k-eps or k-omg) turbulence equations
