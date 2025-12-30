@@ -596,7 +596,7 @@ class Mesh2D{
             double dy = get_dy();
             //w = dv/dx - du/dy w/ central differences:
             for(int j = 0; j < ny; j++){
-                for(int i = 0; i < ny; i++){
+                for(int i = 0; i < nx; i++){
                     int k = get_mem_pos(j,i); 
                     omega(j,i) = ((vc(j,i+1)-vc(j,i-1))/(2*dx))-((uc(j+1,i)-uc(j-1,i))/(2*dy));                     
                 }
