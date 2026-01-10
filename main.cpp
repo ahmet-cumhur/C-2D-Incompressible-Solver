@@ -1,5 +1,5 @@
 #include "two_d_solver.hpp"
-
+#include "data_output.hpp"
 
 int main(){
     //compute A the sparse matrix before the loop so we dont need to
@@ -7,11 +7,11 @@ int main(){
     mkl_set_num_threads(8);
     std::cout << "Sim Staring.....\n";
     auto t_0 = std::chrono::steady_clock::now(); 
-    double t_final = 3.0;
+    double t_final = 0.2;
     double t_current = 0.0;
-    Mesh2D two_D(700,100,7.0,1.0,100.0,0.01,5.0);
+    Mesh2D two_D(500,100,5.0,1.0,100.0,0.01,5.0);
     //here is where we compute the poissons matrix before
-    Mesh2D::LLT_solver LLT_solver;
+    //Mesh2D::LLT_solver LLT_solver;
     Mesh2D::LLT_Pardiso_Solver LLT_Pardiso_Solver;
     //this is SPD matrix w/ neumann BC 
 
@@ -34,12 +34,13 @@ int main(){
     while(t_current<t_final){
         i +=1;
         double dt = two_D.time_step();
-        //double dt = 1e-4;
+        //double dt = 1e-5;
         t_current += dt;
         //we dont apply pressure bc here!
         //two_D.apply_pressure_BC();
         two_D.apply_velocity_BC();
         two_D.apply_square_IBM();
+
         auto t0_star = std::chrono::steady_clock::now();
         two_D.get_star();
         auto t1_star = std::chrono::steady_clock::now();
@@ -48,7 +49,6 @@ int main(){
         //this is for LLT
         //two_D.LLT_solve_poisson_matrix_neumann(LLT_solver);
 
-        //two_D.solve_poisson_matrix_CG(cg);
         auto t0_pois = std::chrono::steady_clock::now();
         two_D.LLT_Pardiso_Solve(LLT_Pardiso_Solver);
         auto t1_pois = std::chrono::steady_clock::now();
@@ -62,8 +62,9 @@ int main(){
         //data save time steps
         if(i%250==0){
             two_D.get_cell_centered_vel();
-            two_D.data_output(t_current,i);
-            
+            two_D.calculate_vorticity();
+            //this is from the data_output.hpp
+            output(t_current,i,two_D);
         }
         //give output about the time spent for sim etc...
         if(i%250== 0){

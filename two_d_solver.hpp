@@ -1,3 +1,4 @@
+#pragma once
 #include <iostream>
 #include <vector>
 #include <array>
@@ -26,6 +27,8 @@ class Mesh2D{
         double u_inlet;
         double nu;
         double eps;
+        double dx;
+        double dy;
         Eigen::MatrixXd un;
         Eigen::MatrixXd us;
         Eigen::MatrixXd vs;
@@ -86,7 +89,9 @@ class Mesh2D{
         omega_flat(ny*nx),
         uc_flat(ny*nx),
         vc_flat(ny*nx),
-        zc_flat(ny*nx)
+        zc_flat(ny*nx),
+        dx(l/(nx-1)),
+        dy(h/(ny-1))
         
         {
 
@@ -247,8 +252,6 @@ class Mesh2D{
         
         using SparseMatrix = Eigen::SparseMatrix<double>;
         SparseMatrix get_sparse_matrix_full_neumann(){
-            double dx = get_dx();
-            double dy = get_dy(); 
             int N = nx*ny;
             SparseMatrix A(N,N);
             
@@ -316,9 +319,6 @@ class Mesh2D{
         }
         
         SparseMatrix get_sparse_matrix_triplets(){
-                double dx = get_dx();
-                double dy = get_dy();
-
                 const int N = nx*ny;
 
                 double diag = 2/(dx*dx)+2/(dy*dy);
@@ -363,8 +363,6 @@ class Mesh2D{
         // get the intermediate time velocities
         //lets add some discretezation possibilities
         void get_star(){
-            double dx = get_dx();
-            double dy = get_dy();
             for(int i = 1; i<nx; i++){
                 for(int j = 0; j<ny; j++){
                     int i_u = i;
@@ -427,7 +425,69 @@ class Mesh2D{
             vs.row(0).setConstant(0);
             vs.row(ny).setConstant(0);
         }
+        void get_star_upwind(){
+            for(int i = 1; i<nx;i++){
+                for(int j = 0; j<ny;j++ ){
+                    //fill the us
+                    int i_u = i;
+                    int j_u = j+1;
+                    int i_v = i+1;
+                    int j_v = j;
+                    // fill here according to
+                    double v_int = ((vn(j_v,i_v)+vn(j_v,i_v+1))/2);
+                    double u_adv_x = (un(j_u,i_u)*((un(j_u,i_u)-un(j_u,i_u-1))/(dx)));
+                    double u_adv_y = v_int*((un(j_u,i_u)-un(j_u-1,i_u))/(dy));
+                    double p_diff_x = (pn(j,i)-pn(j,i-1))/dx;
+                    double u_visc_x = (un(j_u,i_u+1)-2*un(j_u,i_u)+un(j_u,i_u-1))/(dx*dx);
+                    double u_visc_y = (un(j_u+1,i_u)-2*un(j_u,i_u)+un(j_u-1,i_u))/(dy*dy);
 
+                    us(j_u,i_u) = un(j_u,i_u)+dt*(
+                        -u_adv_x-u_adv_y-p_diff_x+(1.0/re)*(u_visc_x+u_visc_y)
+                    );
+                }
+            }
+
+            for(int i = 0; i<nx;i++){
+                for(int j = 1; j<ny;j++ ){
+                    
+                    int i_u = i;
+                    int j_u = j+1;
+                    int i_v = i+1;
+                    int j_v = j;
+                    // fill here according to
+                    double u_int = (un(j_u,i_u+1)+un(j_u,i_u))/2;
+                    double v_adv_x = u_int*(vn(j_v,i_v)-vn(j_v,i_v-1))/(dx);
+                    double v_adv_y = vn(j_v,i_v)*(vn(j_v,i_v)-vn(j_v-1,i_v))/(dy);
+                    double p_diff_v = (pn(j,i)-pn(j-1,i))/dy;
+                    double v_visc_x = (vn(j_v,i_v+1)-2*vn(j_v,i_v)+vn(j_v,i_v-1))/(dx*dx);
+                    double v_visc_y = (vn(j_v+1,i_v)-2*vn(j_v,i_v)+vn(j_v-1,i_v))/(dy*dy);
+
+                    vs(j_v,i_v) = vn(j_v,i_v)+dt*(
+                        -v_adv_x-v_adv_y-p_diff_v+(1.0/re)*(v_visc_x+v_visc_y)
+                    );
+                }
+            }
+
+            //fill the boundary conditions 
+            
+            //U
+            //inlet bc
+            us.col(0).setConstant(u_inlet);
+            //  north and southern wall bc
+            us.row(ny+1) = -us.row(ny);
+            us.row(0) = -us.row(1);
+            //eastern wall bc
+            us.col(nx) = us.col(nx-1);
+
+            //V
+            //inlet bc
+            vs.col(0).setConstant(0);
+            //eastern boundary or outlet
+            vs.col(nx+1) = vs.col(nx);
+            //north south wall bc
+            vs.row(0).setConstant(0);
+            vs.row(ny).setConstant(0);
+        }
        
         //define the LLT solver here,
         using Sp_Matrix = Eigen::SparseMatrix<double>;
@@ -437,8 +497,6 @@ class Mesh2D{
             if (Solver.info() != Eigen::Success) std::cout << "LLT compute failed\n";
         }
         void LLT_solve_poisson_matrix_neumann(LLT_solver& Solver){
-            double dx = get_dx();
-            double dy = get_dy();
             // b = us-us ......
             double sum_div = 0.0;
             for(int i = 0; i<nx; i++ ){
@@ -480,8 +538,6 @@ class Mesh2D{
                 if(Solver.info() != Eigen::Success) {std::cout<<"Pardiso Failed.\n";}
             }
             void LLT_Pardiso_Solve(LLT_Pardiso_Solver& Solver){
-                double dx = get_dx();
-                double dy = get_dy();
                 // b = us-us ......
                 double sum_div = 0.0;
                 for(int i = 0; i<nx; i++ ){
@@ -516,10 +572,10 @@ class Mesh2D{
 
             }
         
-    
+        //time step size calc
         double time_step(){
-            double dx = get_dx();
-            double dy = get_dy();
+            double coeff_adv = 0.1;
+            double coeff_diff = 0.1;
 
             double u_crit = un.cwiseAbs().maxCoeff();
             double v_crit = vn.cwiseAbs().maxCoeff();
@@ -529,10 +585,10 @@ class Mesh2D{
             double four_x = nu*dt/(dx*dx);
             double four_y = nu*dt/(dy*dy);
 
-            double dt_cfl_x = 0.1*dx/std::max(u_crit,eps);
-            double dt_cfl_y = 0.1*dy/std::max(v_crit,eps);
-            double dt_four_x = 0.1*(dx*dx)/nu;
-            double dt_four_y = 0.1*(dy*dy)/nu;
+            double dt_cfl_x = coeff_adv*dx/std::max(u_crit,eps);
+            double dt_cfl_y = coeff_adv*dy/std::max(v_crit,eps);
+            double dt_four_x = coeff_diff*(dx*dx)/nu;
+            double dt_four_y = coeff_diff*(dy*dy)/nu;
 
             dt = std::max(dt_min,std::min({dt_cfl_x, dt_cfl_y,dt_four_x,dt_four_y}));
             //std::cout << "umax=" << u_crit << " vmax=" << v_crit<< " dt_advx=" << dt_cfl_x <<" dt_advy=" << cfl_y <<" dt_diffx=" << dt_four_x <<" dt_diffy=" << dt_four_y<< " dt=" << dt << std::endl;
@@ -544,7 +600,6 @@ class Mesh2D{
             //U
             //inlet bc
             un.col(0).setConstant(u_inlet);
-            //us.col(1).setConstant(u_inlet);
             //  north and southern wall bc
             un.row(ny+1) = -un.row(ny);
             un.row(0) = -un.row(1);
@@ -567,8 +622,6 @@ class Mesh2D{
         }
 
         void time_roll(){
-            double dx = get_dx();
-            double dy = get_dy();
             for(int i = 1; i<nx; i++){
                 for(int j = 0; j<ny; j++){
                     un(j+1,i) = us(j+1,i)-(dt/dx)*(pc(j,i)-pc(j,i-1));
@@ -602,19 +655,17 @@ class Mesh2D{
             vs.block(mid_y,mid_x,20,20).setZero();
         }
         void calculate_vorticity(){
-            double dx = get_dx();
-            double dy = get_dy();
             //w = dv/dx - du/dy w/ central differences:
-            for(int j = 0; j < ny; j++){
-                for(int i = 0; i < nx; i++){
+            for(int j = 1; j < ny-1; j++){
+                for(int i = 1; i < nx-1; i++){
                     int k = get_mem_pos(j,i); 
                     omega(j,i) = ((vc(j,i+1)-vc(j,i-1))/(2*dx))-((uc(j+1,i)-uc(j-1,i))/(2*dy));                     
                 }
             }
-            omega.row(0) = -omega.row(1);
-            omega.row(ny-1) = -omega.row(ny-2);
-            omega.col(0) = -omega.col(1);
-            omega.col(nx-1) = -omega.col(nx-2);    
+            omega.row(0) = omega.row(1);
+            omega.row(ny-1) = omega.row(ny-2);
+            omega.col(0) = omega.col(1);
+            omega.col(nx-1) = omega.col(nx-2);    
         }
         //Time calc
         std::chrono::duration<double> time_spent(std::chrono::high_resolution_clock::time_point t0, std::chrono::high_resolution_clock::time_point t1){
@@ -624,8 +675,6 @@ class Mesh2D{
 
         void data_output(double t_current,int i){
             //get data required for data writing
-            const double dx = get_dx();
-            const double dy = get_dy();
             int npts = nx*ny;
             double o_x = 0.0;
             double o_y = 0.0;
