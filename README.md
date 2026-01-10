@@ -28,3 +28,4 @@ Gives its outputs as .vtk files which are suitable to analyzed on ParaView.
 - Update the poissons matrix build ✅
 - Add energy equation
 - Add RANS (k-eps or k-omg) turbulence equations
+- Better structured code ✅
