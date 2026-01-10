@@ -336,7 +336,6 @@ class Mesh2D{
                         int w = get_w_loc(k);
                         int e = get_e_loc(k);
 
-                        //for singularity
                         T.emplace_back(k,k,diag);
                         //west
                         if(i>0){T.emplace_back(k,w,ux);}else{T.emplace_back(k,k,(ux));}
@@ -616,6 +615,11 @@ class Mesh2D{
             omega.row(ny-1) = -omega.row(ny-2);
             omega.col(0) = -omega.col(1);
             omega.col(nx-1) = -omega.col(nx-2);    
+        }
+        //Time calc
+        std::chrono::duration<double> time_spent(std::chrono::high_resolution_clock::time_point t0, std::chrono::high_resolution_clock::time_point t1){
+            std::chrono::duration<double> time_spent = t1-t0;
+            return time_spent;
         }
 
         void data_output(double t_current,int i){
