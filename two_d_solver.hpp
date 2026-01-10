@@ -47,6 +47,9 @@ class Mesh2D{
         Eigen::VectorXd p_flat;
         Eigen::MatrixXd omega;
         Eigen::VectorXd omega_flat;
+        Eigen::VectorXd uc_flat;
+        Eigen::VectorXd vc_flat;
+        Eigen::VectorXd zc_flat;
 
         Mesh2D(int aNx, int aNy, double aL, double aH,double aRe,double aNu, double aU_inlet):
         nx(aNx),
@@ -80,13 +83,17 @@ class Mesh2D{
         eps(1e-6),
         dt_min(1e-10),
         omega(ny,nx),
-        omega_flat(ny*nx)
+        omega_flat(ny*nx),
+        uc_flat(ny*nx),
+        vc_flat(ny*nx),
+        zc_flat(ny*nx)
+        
         {
 
 
             dt = 1e-6;
             eps = 1e-6;
-            dt_min = 1e-6;
+            dt_min = 1e-10;
             un.setZero();
             us.setZero();
             vn.setZero();
@@ -108,6 +115,10 @@ class Mesh2D{
             p_flat.setZero();
             omega.setZero();
             omega_flat.setZero();
+            uc_flat.setZero();
+            vc_flat.setZero();
+            zc_flat.setZero();
+    
         }
         //get other variables
         double get_dx(){
@@ -585,7 +596,7 @@ class Mesh2D{
 
         void apply_square_IBM(){
             int mid_y = (ny/2)-10;
-            int mid_x = (nx/2)-10; 
+            int mid_x = (nx/2)-100; 
             un.block(mid_y,mid_x,20,20).setZero();
             vn.block(mid_y,mid_x,20,20).setZero();
             us.block(mid_y,mid_x,20,20).setZero();
@@ -618,9 +629,6 @@ class Mesh2D{
             double shited_x = o_x+0.5*dx;
             double shited_y = o_y+0.5*dy;
             //flatten the uc,vc
-            Eigen::VectorXd uc_flat;uc_flat.resize(nx*ny);
-            Eigen::VectorXd vc_flat;vc_flat.resize(nx*ny);
-            Eigen::VectorXd zc_flat;zc_flat.resize(nx*ny);
             for(int j = 0; j<ny; j++){
                 for(int i = 0; i<nx; i++){
                     int k = get_mem_pos(j,i);
@@ -652,25 +660,25 @@ class Mesh2D{
                 FileOP << "SPACING " << dx <<" "<< dy <<" "<<"1\n";
                 //Time Data
                 FileOP << "FIELD FieldData 1\n";
-                FileOP << "TIME 1 1 float\n";
+                FileOP << "TIME 1 1 double\n";
                 FileOP << t_current << "\n";
                 //Point Data
                 //pressure
                 FileOP << "POINT_DATA"<< " " << npts << "\n";
-                FileOP << "SCALARS P float 1\n";
+                FileOP << "SCALARS P double 1\n";
                 FileOP << "LOOKUP_TABLE default\n";
                 for(int k = 0; k<(ny*nx); k++){
                     FileOP << p_flat(k)<<"\n"; 
                 }
                 //vorticity
                 calculate_vorticity();
-                FileOP << "SCALARS w float 1\n";
+                FileOP << "SCALARS w double 1\n";
                 FileOP << "LOOKUP_TABLE default\n";
                 for(int k = 0; k<(ny*nx); k++){
                     FileOP << omega_flat(k)<<"\n"; 
                 }
                 //Vector Data
-                FileOP << "VECTORS U float\n";
+                FileOP << "VECTORS U double\n";
                 UVZ.col(0) = uc_flat;
                 UVZ.col(1) = vc_flat;
                 UVZ.col(2) = zc_flat;
@@ -685,81 +693,3 @@ class Mesh2D{
         
 };
 
-
-
-
-
-
-int main(){
-    //compute A the sparse matrix before the loop so we dont need to
-    //re-compute all the time
-    mkl_set_num_threads(8);
-    std::cout << "Sim Staring.....\n";
-    auto t_0 = std::chrono::steady_clock::now(); 
-    double t_final = 3.0;
-    double t_current = 0.0;
-    Mesh2D two_D(300,100,3.0,1.0,100.0,0.01,5.0);
-    //here is where we compute the poissons matrix before
-    Mesh2D::LLT_solver LLT_solver;
-    Mesh2D::LLT_Pardiso_Solver LLT_Pardiso_Solver;
-    //this is SPD matrix w/ neumann BC 
-    auto t0_matrix = std::chrono::steady_clock::now();
-    auto A_sprs = two_D.get_sparse_matrix_triplets();
-    auto t1_matrix = std::chrono::steady_clock::now();
-    std::chrono::duration<double> time_for_matrix = t1_matrix-t0_matrix;
-    std::cout << "Total time spent on building matrix: " << time_for_matrix.count()<<std::endl;
-    std::cout<< A_sprs.nonZeros()<<"\n";
-    std::cout<<"factorization begins\n";
-    two_D.LLT_Pardiso_compute(LLT_Pardiso_Solver,A_sprs);
-    //two_D.LLT_compute_poisson(LLT_solver,A_sprs);
-    std::cout<<"factorization ends\n";
-    //
-    //
-    int i = 0;
-    while(t_current<t_final){
-        i +=1;
-        double dt = two_D.time_step();
-        //double dt = 1e-4;
-        t_current += dt;
-        //we dont apply pressure bc here!
-        //two_D.apply_pressure_BC();
-        two_D.apply_velocity_BC();
-        two_D.apply_square_IBM();
-        two_D.get_star();
-        two_D.apply_square_IBM();
-
-        //this is for LLT
-        //two_D.LLT_solve_poisson_matrix_neumann(LLT_solver);
-
-        //two_D.solve_poisson_matrix_CG(cg);
-        two_D.LLT_Pardiso_Solve(LLT_Pardiso_Solver);
-
-        two_D.time_roll();
-        two_D.update_pressure();
-        //we dont apply pressure bc here!
-        //two_D.apply_pressure_BC();
-        two_D.apply_velocity_BC();
-
-        //data save time steps
-        if(i%250==0){
-            two_D.get_cell_centered_vel();
-            two_D.data_output(t_current,i);
-            
-        }
-        //give output about the time spent for sim etc...
-        if(i%250== 0){
-            std::cout << "Flow time: "<<t_current<<std::endl;
-            auto t_now = std::chrono::steady_clock::now();
-            std::chrono::duration<double> time_elapsed = t_now-t_0;
-            std::cout << "Total time spent on sim: "<<time_elapsed.count() << "\n";
-            std::cout << "Time step size: " << dt << "\n";
-            std::cout << "MKL threads: " << mkl_get_max_threads() << "\n";
-        }
-
-
-    }
-    std::cout << "Sim Finished.";
-    int n;
-    std::cin >> n; 
-
-}
